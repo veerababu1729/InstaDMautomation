@@ -14,6 +14,16 @@ function timeAgo(ts: string | null) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+/** Count how many automation rules are enabled across a page */
+function activeRuleCount(page: PageConfig): number {
+  return (page.automations ?? []).filter(a => a.enabled).length;
+}
+
+/** Total enabled rules across all pages */
+function totalActiveRules(pages: PageConfig[]): number {
+  return pages.reduce((s, p) => s + activeRuleCount(p), 0);
+}
+
 export default function Dashboard() {
   const [pages, setPages] = useState<PageConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,16 +41,7 @@ export default function Dashboard() {
 
   const totalDMs = pages.reduce((s, p) => s + p.stats.totalDmsSent, 0);
   const totalComments = pages.reduce((s, p) => s + p.stats.totalCommentsTrigger, 0);
-  const activePages = pages.filter(p => p.automation.enabled).length;
-
-  const togglePage = async (page: PageConfig) => {
-    await fetch(`/api/pages/${page.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ automation: { enabled: !page.automation.enabled } }),
-    });
-    load();
-  };
+  const activeAutomations = totalActiveRules(pages);
 
   return (
     <div className="container">
@@ -72,8 +73,8 @@ export default function Dashboard() {
             <div className="stat-value">{pages.length}</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">✅ Active Automations</div>
-            <div className="stat-value">{activePages}</div>
+            <div className="stat-label">✅ Active Rules</div>
+            <div className="stat-value">{activeAutomations}</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">💬 Comments Triggered</div>
@@ -115,59 +116,60 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="pages-grid">
-          {pages.map(page => (
-            <div key={page.id} style={{ position: 'relative' }}>
-              <Link href={`/pages/${page.id}`} className="page-card">
-                <div className="page-card-header">
-                  <div className="page-avatar">{page.name[0]?.toUpperCase() ?? '?'}</div>
-                  <div>
-                    <div className="page-card-name">{page.name}</div>
-                    <div className="page-card-id">{page.igUserId || page.id}</div>
-                  </div>
-                  <div style={{ marginLeft: 'auto' }}>
-                    <span className={`badge ${page.automation.enabled ? 'badge-active' : 'badge-inactive'}`}>
-                      {page.automation.enabled ? '● Live' : '○ Off'}
-                    </span>
-                  </div>
-                </div>
+          {pages.map(page => {
+            const activeCount = activeRuleCount(page);
+            const ruleCount = (page.automations ?? []).length;
+            // Aggregate keywords from all rules for display
+            const allKeywords = (page.automations ?? []).flatMap(a => a.triggerKeywords);
+            const hasFollowGate = (page.automations ?? []).some(a => a.requireFollow);
+            const totalLinks = (page.automations ?? []).reduce((s, a) => s + a.dmLinks.length, 0);
 
-                {/* Config summary */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                  {page.automation.triggerKeywords.length > 0 ? (
-                    <span className="badge badge-purple">🔑 {page.automation.triggerKeywords.slice(0, 2).join(', ')}{page.automation.triggerKeywords.length > 2 ? '...' : ''}</span>
-                  ) : (
-                    <span className="badge badge-purple">🔑 All comments</span>
-                  )}
-                  {page.automation.requireFollow && <span className="badge badge-pink">👥 Follow gate</span>}
-                  {page.automation.dmLinks.length > 0 && <span className="badge badge-purple">🔗 {page.automation.dmLinks.length} link{page.automation.dmLinks.length > 1 ? 's' : ''}</span>}
-                </div>
+            return (
+              <div key={page.id} style={{ position: 'relative' }}>
+                <Link href={`/pages/${page.id}`} className="page-card">
+                  <div className="page-card-header">
+                    <div className="page-avatar">{page.name[0]?.toUpperCase() ?? '?'}</div>
+                    <div>
+                      <div className="page-card-name">{page.name}</div>
+                      <div className="page-card-id">{page.igUserId || page.id}</div>
+                    </div>
+                    <div style={{ marginLeft: 'auto' }}>
+                      <span className={`badge ${activeCount > 0 ? 'badge-active' : 'badge-inactive'}`}>
+                        {activeCount > 0 ? `● ${activeCount} Active` : '○ Off'}
+                      </span>
+                    </div>
+                  </div>
 
-                <div className="page-card-stats">
-                  <div className="page-stat-item">
-                    <div className="page-stat-num">{page.stats.totalCommentsTrigger}</div>
-                    <div className="page-stat-lbl">Triggered</div>
+                  {/* Config summary */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    <span className="badge badge-purple">⚡ {ruleCount} rule{ruleCount !== 1 ? 's' : ''}</span>
+                    {allKeywords.length > 0 ? (
+                      <span className="badge badge-purple">🔑 {allKeywords.slice(0, 2).join(', ')}{allKeywords.length > 2 ? '...' : ''}</span>
+                    ) : (
+                      <span className="badge badge-purple">🔑 All comments</span>
+                    )}
+                    {hasFollowGate && <span className="badge badge-pink">👥 Follow gate</span>}
+                    {totalLinks > 0 && <span className="badge badge-purple">🔗 {totalLinks} link{totalLinks > 1 ? 's' : ''}</span>}
                   </div>
-                  <div className="page-stat-item">
-                    <div className="page-stat-num">{page.stats.totalDmsSent}</div>
-                    <div className="page-stat-lbl">DMs Sent</div>
-                  </div>
-                  <div className="page-stat-item">
-                    <div className="page-stat-num" style={{ fontSize: '14px' }}>{timeAgo(page.stats.lastActivity)}</div>
-                    <div className="page-stat-lbl">Last Activity</div>
-                  </div>
-                </div>
-              </Link>
 
-              {/* Quick toggle button */}
-              <button
-                onClick={(e) => { e.preventDefault(); togglePage(page); }}
-                className={`btn btn-sm ${page.automation.enabled ? 'btn-danger' : 'btn-secondary'}`}
-                style={{ position: 'absolute', top: '16px', right: '56px', fontSize: '11px', padding: '4px 10px' }}
-              >
-                {page.automation.enabled ? 'Pause' : 'Activate'}
-              </button>
-            </div>
-          ))}
+                  <div className="page-card-stats">
+                    <div className="page-stat-item">
+                      <div className="page-stat-num">{page.stats.totalCommentsTrigger}</div>
+                      <div className="page-stat-lbl">Triggered</div>
+                    </div>
+                    <div className="page-stat-item">
+                      <div className="page-stat-num">{page.stats.totalDmsSent}</div>
+                      <div className="page-stat-lbl">DMs Sent</div>
+                    </div>
+                    <div className="page-stat-item">
+                      <div className="page-stat-num" style={{ fontSize: '14px' }}>{timeAgo(page.stats.lastActivity)}</div>
+                      <div className="page-stat-lbl">Last Activity</div>
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            );
+          })}
 
           {/* Add page card */}
           <Link href="/onboard" className="add-page-card">

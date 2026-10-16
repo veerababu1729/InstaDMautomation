@@ -14,11 +14,18 @@ export async function POST(req: NextRequest) {
     const page = await getPage(pageId);
     if (!page) return NextResponse.json({ error: 'Page not found' }, { status: 404 });
 
+    // Use first automation rule; fall back gracefully if none exist
+    const rule = page.automations[0];
+    const dmMessage = rule
+      ? rule.dmMessage.replace('{name}', 'You').replace('{username}', 'You')
+      : 'This is a test DM.';
+    const dmLinks = rule?.dmLinks ?? [];
+
     await sendDM(
       page.igUserId,
       recipientIgId,
-      `🧪 Test DM from ${page.name}\n${page.automation.dmMessage.replace('{name}', 'You').replace('{username}', 'You')}`,
-      page.automation.dmLinks,
+      `🧪 Test DM from ${page.name}\n${dmMessage}`,
+      dmLinks,
       page.pageAccessToken
     );
 

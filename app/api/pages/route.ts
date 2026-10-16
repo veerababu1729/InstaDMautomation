@@ -53,16 +53,7 @@ export async function POST(req: NextRequest) {
       pageAccessToken,
       appSecret,
       webhookVerifyToken,
-      automation: {
-        enabled: false,
-        triggerKeywords: [],
-        triggerMediaUrl: '',
-        replyComment: 'Hey {name}! Check your DMs 📩',
-        dmMessage: 'Hey {name}! Thanks for your comment 🙌\nHere are the links you requested:',
-        dmLinks: [],
-        requireFollow: false,
-        mediaFilter: 'all',
-      },
+      automations: [],
       createdAt: new Date().toISOString(),
       stats: {
         totalDmsSent: 0,

@@ -5,7 +5,10 @@ const BASE = 'https://graph.facebook.com/v18.0';
 
 interface GraphResponse<T> {
   data?: T;
-  error?: { message: string; code: number };
+  id?: string;
+  recipient_id?: string;
+  message_id?: string;
+  error?: { message: string; code: number; type?: string; error_subcode?: number };
 }
 
 async function graphRequest<T>(
@@ -23,7 +26,9 @@ async function graphRequest<T>(
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = (await res.json()) as GraphResponse<T>;
-  if (json.error) throw new Error(`Instagram API: ${json.error.message} (${json.error.code})`);
+  if (json.error) {
+    throw new Error(`Instagram API: ${json.error.message} (${json.error.code})`);
+  }
   return (json as unknown) as T;
 }
 
@@ -36,28 +41,39 @@ export async function replyToComment(
 ): Promise<void> {
   await graphRequest(
     `/${commentId}/replies`,
-    { access_token: accessToken },
-    'POST',
-    { message }
+    { access_token: accessToken, message },
+    'POST'
   );
 }
 
 // ─── Send DM ──────────────────────────────────────────────────────────────────
 
 export async function sendDM(
-  igUserId: string,         // page's IG user ID
-  recipientIgId: string,   // commenter's IG scoped user ID
+  igUserId: string,                                                  // page's IG user ID
+  recipient: string | { commentId?: string; igId?: string },         // comment ID (private reply) or user ID
   message: string,
   links: { label: string; url: string }[],
   accessToken: string
 ): Promise<void> {
   // Build message with links appended
   let fullMessage = message;
-  if (links.length > 0) {
+  if (links && links.length > 0) {
     fullMessage += '\n\n';
     links.forEach(l => {
       fullMessage += `🔗 ${l.label}: ${l.url}\n`;
     });
+  }
+
+  let recipientPayload: Record<string, string>;
+  if (typeof recipient === 'string') {
+    recipientPayload = { id: recipient };
+  } else if (recipient.commentId) {
+    // Meta Private Reply via comment_id
+    recipientPayload = { comment_id: recipient.commentId };
+  } else if (recipient.igId) {
+    recipientPayload = { id: recipient.igId };
+  } else {
+    throw new Error('No valid recipient provided for DM');
   }
 
   await graphRequest(
@@ -65,7 +81,7 @@ export async function sendDM(
     { access_token: accessToken },
     'POST',
     {
-      recipient: { id: recipientIgId },
+      recipient: recipientPayload,
       message: { text: fullMessage },
     }
   );
@@ -74,13 +90,11 @@ export async function sendDM(
 // ─── Check Follow Status ──────────────────────────────────────────────────────
 
 export async function doesUserFollow(
-  igUserId: string,       // page's IG user ID
-  userId: string,         // commenter's IG user ID
+  igUserId: string,
+  userId: string,
   accessToken: string
 ): Promise<boolean> {
   try {
-    // Check if the user is in our follower list using /{ig-user-id}/followers
-    // This requires instagram_manage_insights permission
     const res = await graphRequest<{ data: { id: string }[] }>(
       `/${igUserId}/followers`,
       { access_token: accessToken, fields: 'id', limit: '1', filter: `{"id": "${userId}"}` }
@@ -97,7 +111,6 @@ export async function doesUserFollow(
 export async function getPageInfo(
   accessToken: string
 ): Promise<{ id: string; name: string; igUserId: string }> {
-  // Get Facebook Page ID + name
   const page = await graphRequest<{ id: string; name: string; instagram_business_account: { id: string } }>(
     '/me',
     { access_token: accessToken, fields: 'id,name,instagram_business_account' }
@@ -117,11 +130,11 @@ export async function getUserInfo(
   accessToken: string
 ): Promise<{ name: string }> {
   try {
-    const user = await graphRequest<{ name: string }>(
+    const user = await graphRequest<{ name: string; username?: string }>(
       `/${userId}`,
-      { access_token: accessToken, fields: 'name' }
+      { access_token: accessToken, fields: 'name,username' }
     );
-    return user;
+    return { name: user.name || user.username || 'there' };
   } catch {
     return { name: 'there' };
   }
